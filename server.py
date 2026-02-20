@@ -290,14 +290,3 @@ async def handle_whatsapp_request(req: WhatsAppRequest):
     # Step 3: Send the agent's response back to WhatsApp
     # Return the agent's response as-is
     return {"phoneNumber": req.phoneNumber, "message": req.message}
-
-
-if __name__ == "__main__":
-    import uvicorn
-    
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=8005,
-        log_level="info"
-    )
