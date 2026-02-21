@@ -1,151 +1,56 @@
-# listen for request(post) from whatsapp
-# query the database for user's data
-# send the user query and user data to the agent
-# wait for the agent to respond
-# send the agent's response back to whatsapp
-
-from fastapi import FastAPI, Request, HTTPException, Depends
-from fastapi.security import HTTPBearer
-from starlette.authentication import AuthCredentials
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from motor.motor_asyncio import AsyncIOMotorClient
-import os
+from fastapi import FastAPI, Request, HTTPException, Query
 from dotenv import load_dotenv
-from contextlib import asynccontextmanager
-import httpx
+import os
+import logging
 from datetime import datetime
+import uvicorn
+from typing import Optional
 
-# Load environment variables from .env file
+# Load environment variables from .env if present
 load_dotenv()
 
-# MongoDB Atlas connection string from environment variable
-MONGODB_URL = os.getenv("MONGODB_URL")
-# Agent service URL from environment variable
-AGENT_URL = os.getenv("AGENT_URL")  # e.g., https://agrigpt-backend-agent.onrender.com/chat
-# Authentication token from environment variable
-AUTH_TOKEN = os.getenv("AUTH_TOKEN")
+app = FastAPI(title="Webhook Receiver")
 
-# Security setup
-security = HTTPBearer()
+# Configure logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
 
-async def verify_token(credentials = Depends(security)):
-    """
-    Verify the authentication token from request headers
-    
-    Args:
-        credentials: HTTP Bearer credentials from Authorization header
-        
-    Raises:
-        HTTPException: If token is invalid or missing
-        
-    Returns:
-        str: The authenticated token
-    """
-    token = credentials.credentials
-    if not AUTH_TOKEN:
-        raise HTTPException(status_code=500, detail="Authentication not configured")
-    if token != AUTH_TOKEN:
-        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
-    return token
-
-
-# Initialize FastAPI app with lifespan handler
-app = FastAPI(
-    title="WhatsApp Bot Service",
-    description="Service to handle WhatsApp messages and interact with AI agent",
-    version="1.0.0",
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[os.getenv("WHATSAPP_ORIGIN")] if os.getenv("WHATSAPP_ORIGIN") else ["*"],  # Allow specific origin or all if not set
-    allow_methods=["GET", "POST"],
-)
-
-class WhatsAppRequest(BaseModel):
-    """
-    Request model for incoming WhatsApp messages
-    """
-    phoneNumber: str
-    message: str
+VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
+PORT = int(os.getenv("PORT", "3000"))
 
 @app.get("/")
-async def root():
-    """
-    Root endpoint - Returns service information and available endpoints
-    
-    Returns:
-        dict: Service status and endpoint information
-    """
-    return {
-        "status": "healthy",
-        "service": "WhatsApp Bot Service",
-        "version": "1.0.0",
-        "endpoints": {
-            "root": "GET / (Service info)",
-            "health": "GET /health",
-            "whatsapp": "POST /whatsapp (Main endpoint)",
-            "docs": "GET /docs (Swagger UI)",
-            "redoc": "GET /redoc (ReDoc UI)"
-        }
-    }
+async def verify_webhook(
+    hub_mode: Optional[str] = Query(None, alias="hub.mode"),
+    hub_challenge: Optional[str] = Query(None, alias="hub.challenge"),
+    hub_verify_token: Optional[str] = Query(None, alias="hub.verify_token"),
+):
+    """Endpoint for webhook verification (GET)
 
-@app.get("/health")
-async def health_check():
+    Expects query params: hub.mode, hub.challenge, hub.verify_token
+    Returns the challenge when verified, otherwise 403.
     """
-    Health check endpoint - Returns service health status and database connection
-    
-    Returns:
-        dict: Health status of the service and its dependencies
+    if hub_mode == "subscribe" and hub_verify_token == VERIFY_TOKEN:
+        logging.info("WEBHOOK VERIFIED")
+        # Respond with the challenge string
+        return hub_challenge
+
+    raise HTTPException(status_code=403, detail="Verification failed")
+
+@app.post("/")
+async def receive_webhook(request: Request):
+    """Endpoint for receiving webhook events (POST)
+
+    Logs the timestamp and request body, then returns 200 OK.
     """
-    
-    # Check agent service availability (optional quick check)
-    agent_status = "unknown"
-    if AGENT_URL:
-        agent_status = "configured"
-    else:
-        agent_status = "not configured"
-    
-    return {
-        "status": "healthy",
-        "service": "WhatsApp Bot Service",
-        "version": "1.0.0",
-        "timestamp": datetime.utcnow().isoformat(),
-        "dependencies": {
-            "agent_service": agent_status
-        }
-    }
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        body = await request.json()
+    except Exception:
+        body = await request.body()
 
+    logging.info("\n\nWebhook received %s\n", timestamp)
+    logging.info("%s", body)
 
-@app.post("/whatsapp")
-async def handle_whatsapp_request(req: WhatsAppRequest, token: str = Depends(verify_token)):
-    """
-    Main endpoint to handle incoming WhatsApp messages
-    Requires valid authentication token in Authorization header
-    
-    Flow:
-    1. Verify authentication token
-    2. Receive request from WhatsApp
-    3. Return agent response to WhatsApp
-    
-    Args:
-        req: WhatsAppRequest containing phoneNumber and message
-        token: Authentication token from Authorization header (verified by verify_token dependency)
-        
-    Returns:
-        dict: Agent's response (phoneNumber and message)
-    """
-    # Step 1: Query the database for user's data (creates user if not exists)
-    #user_data = await query_database(req.phoneNumber)
-
-    # Step 2: Send the user query and user data to the agent
-    #agent_response = await send_to_agent(req.message, user_data)
-
-    # Step 3: Send the agent's response back to WhatsApp
-    # Return the agent's response as-is
-    return {"phoneNumber": req.phoneNumber, "message": req.message}
-
+    return {"status": "received"}
 
 if __name__ == "__main__":
     import uvicorn
