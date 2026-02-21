@@ -5,6 +5,7 @@ import logging
 from datetime import datetime
 import uvicorn
 from typing import Optional
+import httpx
 
 # Load environment variables from .env if present
 load_dotenv()
@@ -16,6 +17,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(mes
 
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 PORT = int(os.getenv("PORT", "3000"))
+AUTH_TOKEN = os.getenv("AUTH_TOKEN")
 
 @app.get("/")
 async def verify_webhook(
@@ -50,7 +52,77 @@ async def receive_webhook(request: Request):
     logging.info("\n\nWebhook received %s\n", timestamp)
     logging.info("%s", body)
 
-    return {"status": "received"}
+    # Extract nested value from WhatsApp webhook structure
+    try:
+        entry = body.get("entry", []) if isinstance(body, dict) else []
+        changes = entry[0].get("changes", []) if entry else []
+        value = changes[0].get("value", {}) if changes else {}
+    except Exception:
+        value = {}
+
+    # Extract phone_number_id
+    phone_number_id = None
+    try:
+        metadata = value.get("metadata", {})
+        phone_number_id = metadata.get("phone_number_id")
+    except Exception:
+        phone_number_id = None
+
+    # Extract sender 'from' or wa_id
+    from_number = None
+    try:
+        messages = value.get("messages", [])
+        contacts = value.get("contacts", [])
+        if messages and isinstance(messages, list):
+            from_number = messages[0].get("from")
+        if not from_number and contacts and isinstance(contacts, list):
+            from_number = contacts[0].get("wa_id")
+    except Exception:
+        from_number = None
+
+    # If we have necessary fields, send a template message via Graph API
+    if phone_number_id and from_number:
+        endpoint = f"https://graph.facebook.com/v22.0/{phone_number_id}/messages"
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": f"{from_number}",
+            "type": "template",
+            "template": {
+                "name": "hello_world",
+                "language": {"code": "en_US"}
+            }
+        }
+
+        if not AUTH_TOKEN:
+            logging.error("AUTH_TOKEN not configured")
+            raise HTTPException(status_code=500, detail="Server not configured for outbound messages")
+
+        headers = {
+            "Authorization": f"Bearer {AUTH_TOKEN}",
+            "Content-Type": "application/json"
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(endpoint, json=payload, headers=headers)
+                resp.raise_for_status()
+                try:
+                    resp_json = resp.json()
+                except Exception:
+                    resp_json = {"status_code": resp.status_code, "text": resp.text}
+
+                logging.info("Sent template message, response: %s", resp_json)
+                return {"status": "sent", "provider_response": resp_json}
+
+        except httpx.HTTPStatusError as e:
+            logging.error("Graph API returned error: %s %s", e.response.status_code, e.response.text)
+            raise HTTPException(status_code=502, detail="Failed to send message to provider")
+        except Exception as e:
+            logging.exception("Unexpected error sending message: %s", str(e))
+            raise HTTPException(status_code=500, detail="Unexpected error while sending message")
+
+    # Acknowledge receipt if we couldn't send an outbound message
+    return {"status": "received", "note": "no outbound message sent"}
 
 if __name__ == "__main__":
     import uvicorn
