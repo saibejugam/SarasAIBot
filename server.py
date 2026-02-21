@@ -60,6 +60,10 @@ async def receive_webhook(request: Request):
     except Exception:
         value = {}
 
+    logging.info("entry: %s", entry)
+    logging.info("changes: %s", changes)
+    logging.info("value: %s", value)
+
     # Extract phone_number_id
     phone_number_id = None
     try:
@@ -67,6 +71,8 @@ async def receive_webhook(request: Request):
         phone_number_id = metadata.get("phone_number_id")
     except Exception:
         phone_number_id = None
+
+    logging.info("phone_number_id: %s", phone_number_id)
 
     # Extract sender 'from' or wa_id
     from_number = None
@@ -79,6 +85,8 @@ async def receive_webhook(request: Request):
             from_number = contacts[0].get("wa_id")
     except Exception:
         from_number = None
+
+    logging.info("from_number: %s", from_number)
 
     # If we have necessary fields, send a template message via Graph API
     if phone_number_id and from_number:
