@@ -78,15 +78,15 @@ async def receive_webhook(request: Request):
     from_number = None
     content = "No content"
     try:
-        messages = value.get("statuses", [])
+        messages = value.get("messages", {})
         if messages and isinstance(messages, list):
-            from_number = messages[0].get("recipient_id")
+            from_number = messages[0].get("from")
             content = messages[0].get("text", {}).get("body", "No text content")
     except Exception:
         from_number = None
 
     logging.info("from_number: %s", from_number)
-    logging
+    logging.info("content: %s", content)
 
     # If we have necessary fields, send a template message via Graph API
     if phone_number_id and from_number:
