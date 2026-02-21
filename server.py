@@ -76,17 +76,17 @@ async def receive_webhook(request: Request):
 
     # Extract sender 'from' or wa_id
     from_number = None
+    content = "No content"
     try:
-        messages = value.get("messages", [])
-        contacts = value.get("contacts", [])
+        messages = value.get("statuses", [])
         if messages and isinstance(messages, list):
-            from_number = messages[0].get("from")
-        if not from_number and contacts and isinstance(contacts, list):
-            from_number = contacts[0].get("wa_id")
+            from_number = messages[0].get("recipient_id")
+            content = messages[0].get("text", {}).get("body", "No text content")
     except Exception:
         from_number = None
 
     logging.info("from_number: %s", from_number)
+    logging
 
     # If we have necessary fields, send a template message via Graph API
     if phone_number_id and from_number:
@@ -94,11 +94,8 @@ async def receive_webhook(request: Request):
         payload = {
             "messaging_product": "whatsapp",
             "to": f"{from_number}",
-            "type": "template",
-            "template": {
-                "name": "hello_world",
-                "language": {"code": "en_US"}
-            }
+            "type": "text",
+            'text': {'body': f"{content}"}
         }
 
         if not AUTH_TOKEN:
