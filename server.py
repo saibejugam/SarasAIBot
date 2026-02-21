@@ -20,7 +20,7 @@ PORT = int(os.getenv("PORT", "3000"))
 @app.get("/")
 async def verify_webhook(
     hub_mode: Optional[str] = Query(None, alias="hub.mode"),
-    hub_challenge: Optional[str] = Query(None, alias="hub.challenge"),
+    hub_challenge: Optional[int] = Query(None, alias="hub.challenge"),
     hub_verify_token: Optional[str] = Query(None, alias="hub.verify_token"),
 ):
     """Endpoint for webhook verification (GET)
