@@ -120,9 +120,11 @@ async def receive_webhook(request: Request):
         reply_text = None
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
+                # Send form-encoded data with the required field name
                 external_resp = await client.post(
                     EXTERNAL_API_URL,
-                    data={"Body": content},
+                    data={"Body": str(content)},
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
                 )
                 external_resp.raise_for_status()
                 try:
