@@ -122,7 +122,7 @@ async def receive_webhook(request: Request):
             async with httpx.AsyncClient(timeout=30.0) as client:
                 external_resp = await client.post(
                     EXTERNAL_API_URL,
-                    data={"body": content},
+                    data={"Body": content},
                 )
                 external_resp.raise_for_status()
                 try:
