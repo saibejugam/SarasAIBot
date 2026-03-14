@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Request, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
 import logging
@@ -12,12 +13,22 @@ load_dotenv()
 
 app = FastAPI(title="Webhook Receiver")
 
+# Add CORS headers (allow all origins for simplicity)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
 
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 PORT = int(os.getenv("PORT", "3000"))
 AUTH_TOKEN = os.getenv("AUTH_TOKEN")
+EXTERNAL_API_URL = os.getenv("EXTERNAL_API_URL")
 
 @app.get("/")
 async def verify_webhook(
@@ -110,7 +121,7 @@ async def receive_webhook(request: Request):
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 external_resp = await client.post(
-                    "https://stockanalyzer-wk3v.onrender.com/whatsapp/webhook",
+                    EXTERNAL_API_URL,
                     json={"body": content},
                 )
                 external_resp.raise_for_status()
