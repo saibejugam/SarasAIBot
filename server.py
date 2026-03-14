@@ -77,25 +77,65 @@ async def receive_webhook(request: Request):
     # Extract sender 'from' or wa_id
     from_number = None
     content = "No content"
+    timestamp = None
+    ignore_message = False
     try:
         messages = value.get("messages", {})
         if messages and isinstance(messages, list):
             from_number = messages[0].get("from")
             content = messages[0].get("text", {}).get("body", "No text content")
+            timestamp = messages[0].get("timestamp")
     except Exception:
         from_number = None
 
     logging.info("from_number: %s", from_number)
     logging.info("content: %s", content)
+    logging.info("timestamp: %s", timestamp)
 
-    # If we have necessary fields, send a template message via Graph API
-    if phone_number_id and from_number:
+    if timestamp:
+        try:
+            message_time = datetime.utcfromtimestamp(int(timestamp))
+            now = datetime.utcnow()
+            if (now - message_time).total_seconds() > 120:
+                logging.error("Received message is older than 2 minutes (timestamp: %s)", timestamp)
+                ignore_message = True
+        except Exception as e:
+            logging.error("Error parsing timestamp: %s", str(e))
+
+
+    # If we have necessary fields, call the external analysis API and then send its reply via Graph API
+    if phone_number_id and from_number and not ignore_message:
+        # Call the external POST endpoint with the incoming message as `body`
+        reply_text = None
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                external_resp = await client.post(
+                    "https://stockanalyzer-wk3v.onrender.com/whatsapp/webhook",
+                    json={"body": content},
+                )
+                external_resp.raise_for_status()
+                try:
+                    external_json = external_resp.json()
+                except Exception:
+                    external_json = {"status_code": external_resp.status_code, "text": external_resp.text}
+
+                logging.info("External API response: %s", external_json)
+                reply_text = external_json.get("reply")
+        except httpx.HTTPStatusError as e:
+            logging.error("External API returned error: %s %s", e.response.status_code, e.response.text)
+        except Exception as e:
+            logging.exception("Unexpected error calling external API: %s", str(e))
+
+        if not reply_text:
+            logging.error("No reply returned from external API; not sending a message")
+            return {"status": "received", "note": "no reply from external API"}
+
         endpoint = f"https://graph.facebook.com/v22.0/{phone_number_id}/messages"
         payload = {
             "messaging_product": "whatsapp",
             "to": f"{from_number}",
             "type": "text",
-            'text': {'body': f"{content}"}
+            "text": {"body": reply_text},
         }
 
         if not AUTH_TOKEN:
@@ -104,7 +144,7 @@ async def receive_webhook(request: Request):
 
         headers = {
             "Authorization": f"Bearer {AUTH_TOKEN}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
         try:
